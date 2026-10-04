@@ -141,7 +141,6 @@ def _transaction_out(transaction: Transaction) -> dict:
             else None
         ),
         "unit": transaction.unit,
-        "unit_price": float(transaction.unit_price),
         "subtotal": float(transaction.subtotal),
         "platform_fee": float(transaction.platform_fee),
         "total": float(transaction.total),
@@ -320,13 +319,11 @@ def create_match(
 ):
     requirement = db.scalar(
         select(BuyerRequirement)
-        .where(BuyerRequirement.id == requirement_id)
+        .where(BuyerRequirement.id == requirement_id, BuyerRequirement.buyer_id == user.id)
         .options(joinedload(BuyerRequirement.material))
     )
     if requirement is None:
         raise HTTPException(status_code=404, detail="Requirement not found.")
-    if requirement.buyer_id != user.id:
-        raise HTTPException(status_code=403, detail="You do not own this requirement.")
     if requirement.status != "open":
         raise HTTPException(status_code=409, detail="This requirement is not open for matching.")
     query = (
@@ -338,7 +335,7 @@ def create_match(
     allocations = allocate_supply(requirement, candidates)
     if not allocations:
         raise HTTPException(status_code=404, detail="No compatible active supply was found yet.")
-    matched_quantity = sum((Decimal(listing.quantity_available_base) for listing in candidates), Decimal("0"))
+    matched_quantity = sum((allocation["quantity_base"] for allocation in allocations), Decimal("0"))
     coverage = (matched_quantity / Decimal(requirement.quantity_base) * 100).quantize(
         Decimal("0.0001"), rounding=ROUND_HALF_UP
     )
@@ -348,7 +345,7 @@ def create_match(
         status=MatchStatus.REQUESTED.value,
         requested_quantity_base=requirement.quantity_base,
         matched_quantity_base=matched_quantity,
-        supplier_count=len({listing.supplier_id for listing in candidates}),
+        supplier_count=len(allocations),
         coverage_percent=coverage,
         requested_at=datetime.now(timezone.utc),
         source="buyer_search",
@@ -402,30 +399,6 @@ def create_match(
 
 
 def _match_out(match: Match) -> dict:
-    acceptable_conditions = {condition.lower() for condition in match.requirement.acceptable_conditions}
-    item_by_listing = {item.listing_id: item for item in match.items}
-    items = []
-    for snapshot_item in match.aggregation_snapshot:
-        match_item = item_by_listing.get(snapshot_item["listing_id"])
-        items.append({
-            **snapshot_item,
-            "response_status": match_item.status if match_item else "unknown",
-        })
-    shortfall_base = max(
-        Decimal("0"), match.requested_quantity_base - match.matched_quantity_base
-    )
-    surplus_base = max(
-        Decimal("0"), match.matched_quantity_base - match.requested_quantity_base
-    )
-    material_compatible = all(
-        match_item.listing.material_id == match.requirement.material_id
-        for match_item in match.items
-    )
-    condition_compatible = all(
-        not acceptable_conditions
-        or match_item.listing.condition.lower() in acceptable_conditions
-        for match_item in match.items
-    )
     return {
         "id": match.id,
         "requirement_id": match.requirement_id,
@@ -438,13 +411,8 @@ def _match_out(match: Match) -> dict:
         "base_unit": base_unit_for(match.requirement.unit),
         "supplier_count": match.supplier_count,
         "coverage_percent": float(match.coverage_percent),
-        "quantity_sufficient": match.matched_quantity_base >= match.requested_quantity_base,
-        "material_compatible": material_compatible,
-        "condition_compatible": condition_compatible,
-        "shortfall": float(from_base(shortfall_base, match.requirement.unit)),
-        "surplus": float(from_base(surplus_base, match.requirement.unit)),
         "explanation": match.ai_explanation,
-        "items": items,
+        "items": match.aggregation_snapshot,
     }
 
 

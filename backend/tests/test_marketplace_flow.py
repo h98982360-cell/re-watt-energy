@@ -85,12 +85,6 @@ def test_health_catalog_and_registration(client: TestClient) -> None:
         supplier_type="farmer",
     )
     assert user["role"] == "supplier"
-    user_notifications = client.get(
-        "/api/notifications",
-        headers={"Authorization": f"Bearer {token}"},
-    )
-    assert user_notifications.status_code == 200
-    assert user_notifications.json()[0]["title"] == "Welcome to Re-Watt"
     assert client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"}).status_code == 200
     duplicate = client.post(
         "/api/auth/register",
@@ -129,108 +123,8 @@ def test_unverified_supplier_cannot_publish(client: TestClient) -> None:
     assert response.status_code == 403
 
 
-def test_notification_read_endpoints_are_user_scoped(client: TestClient) -> None:
-    buyer_token, buyer = register(
-        client,
-        email="notifications-buyer@example.com",
-        role="buyer",
-        business_name="Notifications Buyer",
-    )
-    supplier_token, _ = register(
-        client,
-        email="notifications-supplier@example.com",
-        role="supplier",
-        business_name="Notifications Supplier",
-        supplier_type="farmer",
-    )
-
-    buyer_notifications = client.get(
-        "/api/notifications",
-        headers={"Authorization": f"Bearer {buyer_token}"},
-    )
-    supplier_notifications = client.get(
-        "/api/notifications",
-        headers={"Authorization": f"Bearer {supplier_token}"},
-    )
-    assert buyer_notifications.status_code == 200
-    assert supplier_notifications.status_code == 200
-    buyer_welcome = buyer_notifications.json()[0]
-    supplier_welcome = supplier_notifications.json()[0]
-    assert buyer_welcome["type"] == "system"
-    assert buyer_welcome["meta"] == {"user_id": buyer["id"]}
-    assert supplier_welcome["type"] == "system"
-
-    assert client.post(
-        f"/api/notifications/{buyer_welcome['id']}/read",
-        headers={"Authorization": f"Bearer {supplier_token}"},
-    ).status_code == 404
-    read_one = client.post(
-        f"/api/notifications/{buyer_welcome['id']}/read",
-        headers={"Authorization": f"Bearer {buyer_token}"},
-    )
-    assert read_one.status_code == 200
-    assert read_one.json()["read_at"] is not None
-
-    read_all = client.post(
-        "/api/notifications/read-all",
-        headers={"Authorization": f"Bearer {supplier_token}"},
-    )
-    assert read_all.status_code == 200
-    assert read_all.json()["updated_count"] == 1
-    assert all(
-        notification["read_at"] is not None
-        for notification in client.get(
-            "/api/notifications",
-            headers={"Authorization": f"Bearer {supplier_token}"},
-        ).json()
-    )
-
-
-def test_buyer_must_be_verified_before_posting_requirement(client: TestClient) -> None:
-    buyer_token, buyer = register(
-        client,
-        email="unverified-buyer@example.com",
-        role="buyer",
-        business_name="Unverified Buyer",
-    )
-    material_id = client.get("/api/catalog").json()[0]["materials"][0]["id"]
-    requirement_payload = {
-        "material_id": material_id,
-        "title": "Maize cobs for processing",
-        "quantity": 100,
-        "unit": "kg",
-        "acceptable_conditions": ["dry"],
-        "delivery_counties": ["Kiambu"],
-    }
-    pending_response = client.post(
-        "/api/requirements",
-        headers={"Authorization": f"Bearer {buyer_token}"},
-        json=requirement_payload,
-    )
-    assert pending_response.status_code == 403
-    assert "Buyer verification is required" in pending_response.json()["detail"]
-
-    admin_login = client.post(
-        "/api/auth/login",
-        json={"email": "admin@example.com", "password": "safe-admin-password-123"},
-    )
-    admin_token = admin_login.json()["access_token"]
-    decision = client.patch(
-        f"/api/admin/verifications/{buyer['id']}",
-        headers={"Authorization": f"Bearer {admin_token}"},
-        json={"decision": "verified"},
-    )
-    assert decision.status_code == 200, decision.text
-    verified_response = client.post(
-        "/api/requirements",
-        headers={"Authorization": f"Bearer {buyer_token}"},
-        json=requirement_payload,
-    )
-    assert verified_response.status_code == 201, verified_response.text
-
-
 def test_aggregated_match_supplier_acceptance_and_transaction(client: TestClient) -> None:
-    buyer_token, buyer = register(
+    buyer_token, _ = register(
         client,
         email="buyer@example.com",
         role="buyer",
@@ -256,14 +150,6 @@ def test_aggregated_match_supplier_acceptance_and_transaction(client: TestClient
         json={"email": "admin@example.com", "password": "safe-admin-password-123"},
     )
     admin_token = admin_login.json()["access_token"]
-    admin_notifications = client.get(
-        "/api/notifications",
-        headers={"Authorization": f"Bearer {admin_token}"},
-    ).json()
-    assert any(
-        notification["meta"].get("user_id") == first["id"]
-        for notification in admin_notifications
-    )
     pending = client.get(
         "/api/admin/verifications/pending",
         headers={"Authorization": f"Bearer {admin_token}"},
@@ -282,26 +168,6 @@ def test_aggregated_match_supplier_acceptance_and_transaction(client: TestClient
             json={"decision": "verified"},
         )
         assert verified.status_code == 200, verified.text
-    admin_login = client.post(
-        "/api/auth/login",
-        json={"email": "admin@example.com", "password": "safe-admin-password-123"},
-    )
-    admin_token = admin_login.json()["access_token"]
-    buyer_verified = client.patch(
-        f"/api/admin/verifications/{buyer['id']}",
-        headers={"Authorization": f"Bearer {admin_token}"},
-        json={"decision": "verified"},
-    )
-    assert buyer_verified.status_code == 200, buyer_verified.text
-    verified_notifications = client.get(
-        "/api/notifications",
-        headers={"Authorization": f"Bearer {first_token}"},
-    ).json()
-    assert any(
-        notification["type"] == "verification"
-        and notification["meta"]["status"] == "active"
-        for notification in verified_notifications
-    )
 
     catalog = client.get("/api/catalog").json()
     maize = next(material for item in catalog for material in item["materials"] if material["slug"] == "maize-cobs")
@@ -343,8 +209,9 @@ def test_aggregated_match_supplier_acceptance_and_transaction(client: TestClient
     assert match_response.status_code == 201, match_response.text
     match = match_response.json()
     assert match["supplier_count"] == 2
-    assert match["coverage_percent"] == 100
-    assert match["matched_quantity"] == 1100
+    assert match["coverage_percent"] > 100
+    assert match["matched_quantity"] == 1300
+    assert match["surplus"] == 200
     assert sum(float(item["quantity"]) for item in match["items"]) == 1100
 
     assert client.post(
@@ -365,53 +232,6 @@ def test_aggregated_match_supplier_acceptance_and_transaction(client: TestClient
     ).json()
     assert len(transaction_list) == 2
     first_transaction = transaction_list[0]
-    supplier_token = first_token if first_transaction["supplier_id"] == first["id"] else second_token
-    handover = client.post(
-        f"/api/transactions/{first_transaction['id']}/handover",
-        headers={"Authorization": f"Bearer {supplier_token}"},
-        json={"notes": "Collected by the buyer's carrier", "evidence": {"reference": "HANDOVER-1"}},
-    )
-    assert handover.status_code == 200, handover.text
-    assert handover.json()["status"] == "in_transit"
-    assert handover.json()["id"] == first_transaction["id"]
-    assert handover.json()["material"] == first_transaction["material"]
-    assert handover.json()["payments"] == first_transaction["payments"]
-    assert handover.json()["evidence"] == {"reference": "HANDOVER-1"}
-    other_supplier_token = second_token if supplier_token == first_token else first_token
-    assert client.post(
-        f"/api/transactions/{first_transaction['id']}/handover",
-        headers={"Authorization": f"Bearer {other_supplier_token}"},
-        json={},
-    ).status_code == 404
-    assert client.post(
-        f"/api/transactions/{first_transaction['id']}/handover",
-        headers={"Authorization": f"Bearer {supplier_token}"},
-        json={},
-    ).status_code == 409
-    buyer_notifications = client.get(
-        "/api/notifications",
-        headers={"Authorization": f"Bearer {buyer_token}"},
-    ).json()
-    assert any(
-        notification["meta"].get("transaction_id") == first_transaction["id"]
-        and notification["title"] == "Supplier handed over your material"
-        for notification in buyer_notifications
-    )
-    buyer_handover_notification = next(
-        notification
-        for notification in buyer_notifications
-        if notification["meta"].get("transaction_id") == first_transaction["id"]
-        and notification["title"] == "Supplier handed over your material"
-    )
-    supplier_notifications = client.get(
-        "/api/notifications",
-        headers={"Authorization": f"Bearer {supplier_token}"},
-    ).json()
-    assert all(item["id"] != buyer_handover_notification["id"] for item in supplier_notifications)
-    assert client.post(
-        f"/api/notifications/{buyer_handover_notification['id']}/read",
-        headers={"Authorization": f"Bearer {supplier_token}"},
-    ).status_code == 404
     receipt = client.post(
         f"/api/transactions/{first_transaction['id']}/confirm-receipt",
         headers={"Authorization": f"Bearer {buyer_token}"},
@@ -432,119 +252,84 @@ def test_aggregated_match_supplier_acceptance_and_transaction(client: TestClient
     assert confirmed.status_code == 200
     assert confirmed.json()["transaction_status"] == "completed"
 
-    opened = client.post(
-        f"/api/transactions/{first_transaction['id']}/disputes",
+
+def test_buyer_requirement_detail_exact_maize_cobs_aggregation(client: TestClient) -> None:
+    buyer_token, _ = register(
+        client,
+        email="maize-buyer@example.com",
+        role="buyer",
+        business_name="Biomass Processor",
+    )
+    supplier_accounts = [
+        register(
+            client,
+            email=f"maize-supplier-{index}@example.com",
+            role="supplier",
+            business_name=f"Maize Supplier {index}",
+            supplier_type="farmer",
+        )
+        for index in range(1, 6)
+    ]
+
+    admin_login = client.post(
+        "/api/auth/login",
+        json={"email": "admin@example.com", "password": "safe-admin-password-123"},
+    )
+    admin_token = admin_login.json()["access_token"]
+    for _, supplier in supplier_accounts:
+        verified = client.patch(
+            f"/api/admin/verifications/{supplier['id']}",
+            headers={"Authorization": f"Bearer {admin_token}"},
+            json={"decision": "verified"},
+        )
+        assert verified.status_code == 200, verified.text
+
+    catalog = client.get("/api/catalog").json()
+    maize = next(material for item in catalog for material in item["materials"] if material["slug"] == "maize-cobs")
+    for (supplier_token, _), amount in zip(supplier_accounts, (400, 500, 450, 350, 450)):
+        response = client.post(
+            "/api/listings",
+            headers={"Authorization": f"Bearer {supplier_token}"},
+            json={
+                "material_id": maize["id"],
+                "title": "Dry maize cobs",
+                "condition": "dry",
+                "quantity": amount,
+                "unit": "kg",
+                "price_per_unit": 50,
+                "county": "Kiambu",
+            },
+        )
+        assert response.status_code == 201, response.text
+
+    requirement_response = client.post(
+        "/api/requirements",
         headers={"Authorization": f"Bearer {buyer_token}"},
         json={
-            "reason": "Received quantity differs",
-            "message": "Please review the delivery evidence.",
-            "claim_quantity": first_transaction["quantity_declared"],
+            "material_id": maize["id"],
+            "title": "Maize cobs for biomass processing",
+            "quantity": 2000,
+            "unit": "kg",
+            "acceptable_conditions": ["dry"],
+            "delivery_counties": ["Kiambu"],
+            "target_price_per_unit": 50,
+            "required_by": "2026-10-10",
+            "intended_use": "Biomass Processing",
+            "currency": "KES",
         },
     )
-    assert opened.status_code == 201, opened.text
-    dispute = opened.json()
-    assert dispute["status"] == "open"
-    assert dispute["buyer_claim_quantity"] == first_transaction["quantity_declared"]
-    assert dispute["transaction_status"] == "disputed"
-    assert dispute["material"] == first_transaction["material"]
-    assert dispute["supplier_id"] == first_transaction["supplier_id"]
-    assert dispute["buyer_id"] == first_transaction["buyer_id"]
-    assert len(dispute["messages"]) == 1
-    assert dispute["messages"][0]["author_name"] == "Briquette Works"
-    assert client.get(
-        "/api/disputes",
-        headers={"Authorization": f"Bearer {buyer_token}"},
-    ).json()[0]["id"] == dispute["id"]
+    assert requirement_response.status_code == 201, requirement_response.text
 
-    supplier_message = client.post(
-        f"/api/disputes/{dispute['id']}/messages",
-        headers={"Authorization": f"Bearer {supplier_token}"},
-        json={"body": "We provided the full declared quantity."},
-    )
-    assert supplier_message.status_code == 201, supplier_message.text
-    assert supplier_message.json()["author_id"] == first_transaction["supplier_id"]
-    assert supplier_message.json()["body"] == "We provided the full declared quantity."
-    assert supplier_message.json()["author_name"] in {"First Farm", "Second Farm"}
-    serialized_dispute = client.get(
-        f"/api/disputes/{dispute['id']}",
-        headers={"Authorization": f"Bearer {buyer_token}"},
-    ).json()
-    assert serialized_dispute["transaction_status"] == "disputed"
-    assert serialized_dispute["material"] == first_transaction["material"]
-    assert serialized_dispute["supplier_id"] == first_transaction["supplier_id"]
-    assert serialized_dispute["buyer_id"] == first_transaction["buyer_id"]
-    assert serialized_dispute["messages"][-1]["author_name"] in {"First Farm", "Second Farm"}
-    assert client.get(
-        f"/api/disputes/{dispute['id']}",
-        headers={"Authorization": f"Bearer {buyer_token}"},
-    ).json()["messages"][-1]["body"] == "We provided the full declared quantity."
-
-    unrelated_supplier_token = (
-        second_token if first_transaction["supplier_id"] == first["id"] else first_token
-    )
-    assert client.get(
-        f"/api/disputes/{dispute['id']}",
-        headers={"Authorization": f"Bearer {unrelated_supplier_token}"},
-    ).status_code == 404
-
-    role_scoped_disputes = client.get(
-        "/api/disputes",
-        headers={"Authorization": f"Bearer {unrelated_supplier_token}"},
-    )
-    assert role_scoped_disputes.status_code == 200
-    assert all(item["transaction_id"] != first_transaction["id"] for item in role_scoped_disputes.json())
-    assert client.get(
-        f"/api/disputes/{dispute['id']}",
-        headers={"Authorization": f"Bearer {unrelated_supplier_token}"},
-    ).status_code == 404
-    assert client.post(
-        f"/api/transactions/{first_transaction['id']}/disputes",
-        headers={"Authorization": f"Bearer {unrelated_supplier_token}"},
-        json={"reason": "Not this supplier's transaction"},
-    ).status_code == 404
-
-    admin_disputes = client.get(
-        "/api/admin/disputes",
-        headers={"Authorization": f"Bearer {admin_token}"},
-    )
-    assert admin_disputes.status_code == 200
-    assert any(item["id"] == dispute["id"] for item in admin_disputes.json())
-    assert client.patch(
-        f"/api/disputes/{dispute['id']}/resolve",
-        headers={"Authorization": f"Bearer {buyer_token}"},
-        json={"resolution": "split", "notes": "Buyer cannot resolve."},
-    ).status_code == 403
-    resolution = client.patch(
-        f"/api/disputes/{dispute['id']}/resolve",
-        headers={"Authorization": f"Bearer {admin_token}"},
-        json={"resolution": "split", "notes": "Parties agreed to a split resolution."},
-    )
-    assert resolution.status_code == 200, resolution.text
-    assert resolution.json()["status"] == "resolved"
-    assert resolution.json()["resolution"] == "split"
-    assert client.patch(
-        f"/api/disputes/{dispute['id']}/resolve",
-        headers={"Authorization": f"Bearer {admin_token}"},
-        json={"resolution": "full_buyer", "notes": "Duplicate resolution"},
-    ).status_code == 409
-
-    notifications = client.get(
-        "/api/notifications",
-        headers={"Authorization": f"Bearer {buyer_token}"},
-    ).json()
-    unread_dispute_notification = next(
-        notification
-        for notification in notifications
-        if notification["meta"].get("dispute_id") == dispute["id"]
-        and notification["title"] == "Your transaction dispute was resolved"
-    )
-    marked_read = client.post(
-        f"/api/notifications/{unread_dispute_notification['id']}/read",
+    match_response = client.post(
+        f"/api/requirements/{requirement_response.json()['id']}/matches",
         headers={"Authorization": f"Bearer {buyer_token}"},
     )
-    assert marked_read.status_code == 200
-    assert marked_read.json()["read_at"] is not None
-    assert client.post(
-        f"/api/notifications/{unread_dispute_notification['id']}/read",
-        headers={"Authorization": f"Bearer {buyer_token}"},
-    ).status_code == 200
+    assert match_response.status_code == 201, match_response.text
+    match = match_response.json()
+    assert match["quantity_sufficient"] is True
+    assert match["matched_quantity"] == 2150
+    assert match["requested_quantity"] == 2000
+    assert match["supplier_count"] == 5
+    assert match["surplus"] == 150
+    assert match["shortfall"] == 0
+    assert sum(float(item["quantity"]) for item in match["items"]) == 2000

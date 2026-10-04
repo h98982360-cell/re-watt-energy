@@ -1,0 +1,72 @@
+729|function Overview(props: {
+730|  user: User;
+731|  listings: Listing[];
+732|  requirements: Requirement[];
+733|  matches: Match[];
+734|  transactions: Transaction[];
+735|  setView: (view: View) => void;
+736|  newListing: () => void;
+737|}) {
+738|  const isSupplier = props.user.role === "supplier";
+739|  const isBuyer = props.user.role === "buyer";
+740|  const userListings = props.listings.filter((listing) => listing.supplier_id === props.user.id);
+741|  const completed = props.transactions.filter((transaction) => transaction.status === "completed").length;
+742|  return (
+743|    <>
+744|      <PageHeading
+745|        eyebrow={`GOOD TO SEE YOU, ${props.user.full_name.split(" ")[0].toUpperCase()}`}
+746|        title={isSupplier ? "Your supply, in good company." : isBuyer ? "Let’s find what you need." : "Marketplace at a glance."}
+747|        description={isSupplier ? "Bring your materials to the businesses looking for them." : isBuyer ? "Discover verified supply, brought together for your next order." : "Review new businesses and keep the marketplace trusted."}
+748|        action={isSupplier ? <button className="button button-dark" onClick={props.newListing}>+ List material</button> : isBuyer ? <button className="button button-dark" onClick={() => props.setView("requirements")}>+ Post requirement</button> : null}
+749|      />
+750|      {!props.user.is_verified && props.user.role !== "admin" && (
+751|        <div className="verification-banner"><span className="verification-symbol">◷</span><div><strong>Your account is under review</strong><p>Our team checks business details before you can publish materials or request a match.</p></div><span className="pending-tag">IN REVIEW</span></div>
+752|      )}
+753|      <div className="metric-grid">
+754|        <Metric label={isSupplier ? "Active listings" : "Available listings"} value={isSupplier ? userListings.length : props.listings.length} note="Live on the marketplace" icon="▤" />
+755|        <Metric label={isBuyer ? "Open requirements" : "Your matches"} value={isBuyer ? props.requirements.filter((item) => item.status !== "completed").length : props.matches.length} note="Across your workspace" icon="⇄" />
+756|        <Metric label="Transactions" value={props.transactions.length} note={`${completed} completed`} icon="↗" />
+757|        <Metric label="Trust status" value={props.user.is_verified ? "Verified" : "Pending"} note="Admin reviewed business" icon="✓" positive={props.user.is_verified} />
+758|      </div>
+759|      <div className="dashboard-grid">
+760|        <section className="panel main-panel">
+761|          <div className="panel-head"><div><span className="panel-kicker">MARKET ACTIVITY</span><h2>{isSupplier ? "Your latest listings" : "Available material"}</h2></div><button className="text-button" onClick={() => props.setView(isSupplier ? "listings" : "supply")}>View all ↗</button></div>
+762|          {(isSupplier ? userListings : props.listings).slice(0, 4).map((listing) => (
+763|            <div className="listing-row" key={listing.id}>
+764|              <div className="material-thumb small-thumb">♧</div>
+765|              <div className="row-main"><strong>{listing.material}</strong><span>{listing.county || "Kenya"} · {listing.condition}</span></div>
+766|              <div className="row-quantity"><strong>{listing.quantity_available.toLocaleString()} {listing.unit}</strong><span>available</span></div>
+767|              <span className="table-status active-status">Active</span>
+768|            </div>
+769|          ))}
+770|          {(isSupplier ? userListings : props.listings).length === 0 && <EmptyState title="Nothing listed yet" text={isSupplier ? "Add your first material listing once your account is verified." : "New verified listings will appear here."} />}
+771|        </section>
+772|        <section className="panel activity-panel">
+773|          <div className="panel-head"><div><span className="panel-kicker">YOUR WORKFLOW</span><h2>Next steps</h2></div><span className="panel-icon">✳</span></div>
+774|          <div className="workflow-list">
+775|            {(isSupplier
+776|              ? [["01", "Get verified", props.user.is_verified ? "Business approved" : "Our team is reviewing your details", props.user.is_verified],
+777|                ["02", "List your supply", userListings.length ? `${userListings.length} active listing(s)` : "Share your first material", userListings.length > 0],
+778|                ["03", "Respond to matches", `${props.matches.length} match request(s)`, props.matches.length > 0]]
+779|              : [["01", "Complete verification", props.user.is_verified ? "Business approved" : "Account is under review", props.user.is_verified],
+780|                ["02", "Post a requirement", `${props.requirements.length} requirement(s) created`, props.requirements.length > 0],
+781|                ["03", "Review aggregated supply", `${props.matches.length} match result(s)`, props.matches.length > 0]]
+782|            ).map(([number, title, text, done]) => (
+783|              <div className="workflow-item" key={number as string}><span className={`workflow-number ${done ? "done" : ""}`}>{done ? "✓" : number}</span><div><strong>{title as string}</strong><span>{text as string}</span></div><span className="workflow-arrow">›</span></div>
+784|            ))}
+785|          </div>
+786|          <div className="impact-note"><span>↗</span><p>Good material, found faster.<br /><strong>That’s a better kind of growth.</strong></p></div>
+787|        </section>
+788|      </div>
+789|    </>
+790|  );
+791|}
+792|
+793|function Metric(props: { label: string; value: string | number; note: string; icon: string; positive?: boolean }) {
+794|  return <div className="metric-card"><div className="metric-top"><span>{props.label}</span><span className="metric-icon">{props.icon}</span></div><strong className={`metric-value ${props.positive ? "metric-positive" : ""}`}>{props.value}</strong><span className="metric-note">{props.note}</span></div>;
+795|}
+796|
+797|function Supply({ listings, user }: { listings: Listing[]; user: User }) {
+798|  return <>
+799|    <PageHeading eyebrow="THE OPEN MARKET" title="Available supply" description="Browse active material listings from across the marketplace." />
+800|    <div className="market-summary"><span className="market-summary-icon">✳</span><div><strong>Scattered supply, brought into view.</strong><p>Check the condition, location, and available amount before requesting a match.</p></div><span className="summary-count">{listings.length} listings</span></div>

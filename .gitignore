@@ -1,34 +1,16 @@
-# Python
-__pycache__/
-*.py[cod]
-*.egg-info/
 .venv/
 venv/
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
+__pycache__/
+*.pyc
 
-# Environment / secrets
 .env
-*.local
+.env.*
+!.env.example
 
-# Database
-*.db
-*.sqlite3
-*.sqlite
-
-# Node
 node_modules/
 dist/
 build/
-.vite/
-*.tsbuildinfo
 
-# Editors / OS
-.vscode/
-.idea/
-.DS_Store
-Thumbs.db
-
-# Kilo
-.kilo/worktrees/
+*.db
+*.sqlite
+*.sqlite3

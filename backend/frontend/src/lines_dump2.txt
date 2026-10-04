@@ -1,0 +1,83 @@
+863|function flattenMaterials(categories: Category[]): MaterialItem[] {
+864|  return categories.flatMap((category) => category.materials);
+865|}
+866|
+867|function RequirementsPage(props: { requirements: Requirement[]; materials: MaterialItem[]; busy: boolean; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
+868|  return <>
+869|    <PageHeading eyebrow="BUYER WORKSPACE" title="What do you need?" description="Tell TAI what material you are looking for and we will find compatible supply." />
+870|    <section className="panel form-panel">
+871|      <div className="panel-head"><div><span className="panel-kicker">CREATE A REQUIREMENT</span></div></div>
+872|      <form className="market-form" onSubmit={props.onSubmit}>
+873|        <div className="req-field-group">
+874|          <div className="req-field-label">Material</div>
+875|          <div className="req-field-desc">What are you sourcing?</div>
+876|          <select name="material_id" required>{props.materials.map((m) => <option value={m.id} key={m.id}>{m.name}</option>)}</select>
+877|        </div>
+878|        <div className="req-field-group">
+879|          <div className="req-field-label">Requirement title</div>
+880|          <input name="title" required minLength={3} placeholder="e.g. Dry maize cobs for briquette production" />
+881|        </div>
+882|        <div className="req-field-group">
+883|          <div className="req-field-label">Quantity</div>
+884|          <div className="req-field-desc">How much do you need?</div>
+885|          <div className="form-row">
+886|            <input name="quantity" type="number" required min="0.01" step="0.01" placeholder="2000" />
+887|            <select name="unit" defaultValue="kg"><option value="kg">Kilograms (kg)</option><option value="tonne">Tonnes</option><option value="pieces">Pieces</option></select>
+888|          </div>
+889|        </div>
+890|        <div className="req-field-group">
+891|          <div className="req-field-label">Condition</div>
+892|          <div className="req-field-desc">What condition do you need? <span className="field-help">(No selection means any condition)</span></div>
+893|          <div className="condition-options">{conditions.map((c) => <label key={c} className="checkbox-pill"><input type="checkbox" name="conditions" value={c} />{c}</label>)}</div>
+894|        </div>
+895|        <div className="req-field-group">
+896|          <div className="req-field-label">Where do you need it?</div>
+897|          <div className="req-field-desc">Enter one or more counties separated by commas</div>
+898|          <input name="delivery_counties" placeholder="e.g. Kiambu, Nairobi, Nyeri" />
+899|        </div>
+900|        <div className="req-field-group">
+901|          <div className="req-field-label">When do you need it?</div>
+902|          <input name="required_by" type="date" />
+903|        </div>
+904|        <div className="req-field-group">
+905|          <div className="req-field-label">Target price per unit <span className="field-help">(optional)</span></div>
+906|          <input name="target_price_per_unit" type="number" min="0" step="0.01" placeholder="KSh / unit" />
+907|        </div>
+908|        <div className="req-field-group">
+909|          <div className="req-field-label">Intended use</div>
+910|          <div className="req-field-desc">What will you use it for?</div>
+911|          <input name="intended_use" placeholder="e.g. Biomass processing" />
+912|        </div>
+913|        <div className="req-field-group">
+914|          <div className="req-field-label">Additional requirements <span className="field-help">(optional)</span></div>
+915|          <textarea name="description" rows={2} placeholder="Any additional quality or supply requirements..." />
+916|        </div>
+917|        <div className="form-actions">
+918|          <span>We will match based on: Material &bull; Quantity &bull; Condition &bull; Location &bull; Availability</span>
+919|          <button className="button button-dark" disabled={props.busy}>{props.busy ? "Finding supply..." : "Post Requirement"} <span>&#8599;</span></button>
+920|        </div>
+921|      </form>
+922|    </section>
+923|    <section className="panel table-panel">
+924|      <div className="panel-head"><div><span className="panel-kicker">YOUR BUYER DESK</span><h2>Open requirements <span className="heading-count">{props.requirements.length}</span></h2></div></div>
+925|      {props.requirements.map((item) => (
+926|        <div className="req-card" key={item.id}>
+927|          <div className="req-card-top">
+928|            <div><strong className="req-material">{item.material}</strong><span className="req-title">{item.title}</span></div>
+929|            <span className={`table-status ${item.status === "open" ? "active-status" : "pending-status"}`}>{item.status.replaceAll("_", " ")}</span>
+930|          </div>
+931|          <div className="req-card-meta">
+932|            <span><strong>{item.quantity.toLocaleString()} {item.unit}</strong> requested</span>
+933|            {item.delivery_counties && item.delivery_counties.length > 0 && <span>&#128205; {item.delivery_counties.join(", ")}</span>}
+934|            {item.acceptable_conditions && item.acceptable_conditions.length > 0 && <span>{item.acceptable_conditions.join(" · ")}</span>}
+935|          </div>
+936|        </div>
+937|      ))}
+938|      {props.requirements.length === 0 && <EmptyState title="No requirements posted" text="Post a requirement above to find matching supply." />}
+939|    </section>
+940|  </>;
+941|}
+942|
+943|function MatchesPage(props: { user: User; matches: Match[]; busy: boolean; token: string | null; respond: (id: number, accept: boolean) => void }) {
+944|  const [insights, setInsights] = useState<Record<number, CompatibilityInsight>>({});
+945|  const [insightLoading, setInsightLoading] = useState<number | null>(null);

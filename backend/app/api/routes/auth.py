@@ -9,10 +9,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ...database import get_db
-from ...enums import NotificationType
 from ...models import BuyerProfile, SupplierProfile, User
 from ...security import create_access_token, get_current_user, hash_password, verify_password
-from ...services.notifications import create_notification, notify_admins
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -86,26 +84,8 @@ def register(payload: RegisterIn, db: Session = Depends(get_db)):
         )
     db.add(user)
     try:
-        db.flush()
-        db.refresh(user)
-        create_notification(
-            db,
-            user_id=user.id,
-            notification_type=NotificationType.SYSTEM.value,
-            title="Welcome to Re-Watt",
-            body="Your account has been created and is awaiting verification.",
-            link="/auth/me",
-            meta={"user_id": user.id},
-        )
-        notify_admins(
-            db,
-            notification_type=NotificationType.VERIFICATION.value,
-            title="A new account needs verification",
-            body=f"{user.full_name} registered as a {user.role}.",
-            link="/admin/verifications/pending",
-            meta={"user_id": user.id, "role": user.role},
-        )
         db.commit()
+        db.refresh(user)
     except IntegrityError:
         db.rollback()
         raise HTTPException(

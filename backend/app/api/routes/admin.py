@@ -9,10 +9,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
 from ...database import get_db
-from ...enums import NotificationType
 from ...models import BuyerProfile, SupplierProfile, User, VerificationRecord
 from ...security import require_roles
-from ...services.notifications import create_notification
 
 router = APIRouter(prefix="/admin", tags=["Administration"])
 
@@ -88,17 +86,6 @@ def decide_verification(
             reviewed_at=now,
             review_notes=payload.note,
         )
-    )
-    create_notification(
-        db,
-        user_id=user.id,
-        notification_type=NotificationType.VERIFICATION.value,
-        title="Your account verification was reviewed",
-        body=f"Your account was {payload.decision}." + (
-            f" Note: {payload.note}" if payload.note else ""
-        ),
-        link="/auth/me",
-        meta={"status": user.status, "verification_status": profile.verification_status},
     )
     db.commit()
     return {"user_id": user.id, "status": user.status, "verification_status": profile.verification_status}
